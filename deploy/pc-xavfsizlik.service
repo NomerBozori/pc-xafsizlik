@@ -1,0 +1,25 @@
+# PC Xavfsizlik — systemd xizmati
+# O'rnatish: sudo ./install.sh
+[Unit]
+Description=PC Xavfsizlik — parol urinishlarini kamera bilan qayd etuvchi qo'riqchi
+Documentation=file:///opt/pc-xafsizlik/README.md
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pc-xafsizlik
+Environment=PYTHONUNBUFFERED=1
+Environment=PCX_HOST=127.0.0.1
+Environment=PCX_PORT=8000
+# Kamera va auth.log uchun root huquqi kerak
+ExecStart=/opt/pc-xafsizlik/.venv/bin/python /opt/pc-xafsizlik/app.py --arm
+Restart=always
+RestartSec=5
+# Xavfsizlik: faqat kerakli huquqlar
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
