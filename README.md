@@ -21,30 +21,55 @@ Voqeadan keyin 30 soniya "sovish" — rasmga olish takrorlanib ketmaydi.
 
 ---
 
-## O'rnatish va ishga tushirish
+## 🚀 Noutbukka o'rnatish (tavsiya etiladi)
 
-### Linux / macOS
+**Batafsil qo'llanma: [ORNATISH.md](ORNATISH.md)**
+
+### Linux — bitta buyruq
 ```bash
-./run.sh
+git clone https://github.com/NomerBozori/pc-xafsizlik.git
+cd pc-xafsizlik
+sudo ./install.sh
 ```
+→ `/opt/pc-xafsizlik` ga o'rnatiladi, **systemd xizmati** yaratiladi
+(kompyuter yonganda avtomatik ishga tushadi), kamera va jurnal tekshiriladi.
 
-### Windows (PowerShell / cmd)
-```bat
-run.bat
-```
+### Windows — bitta fayl
+`install-windows.bat` → **o'ng tugma → "Run as administrator"**
+→ `C:\ProgramData\PCXavfsizlik` ga o'rnatiladi, **boot vazifasi** yaratiladi.
 
-Yoki qo'lda:
+### Tekshirish
 ```bash
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-pip install opencv-python          # kamera uchun (Linux'da: sudo apt install python3-opencv)
-python app.py --arm
+sudo /opt/pc-xafsizlik/.venv/bin/python /opt/pc-xafsizlik/app.py --doctor
+```
+```
+Kamera:            ✅ opencv · sinov kadri olindi
+Jurnal:            ✅ journalctl (auth.log)
+Tizim xizmati:     ✅ active / enabled
+End-to-end sinov:  ✅ voqea yaratildi, 3 ta rasm
 ```
 
+### Sinash — haqiqiy parol urinishi
+```bash
+sudo -k                  # parolni "unutish"
+sudo ls                  # noto'g'ri parol kiriting, 3 marta
+```
+Bir necha soniyada dashboard'da voqea + kamera rasmi paydo bo'ladi.
+
+**Boshqarish:**
+```bash
+sudo systemctl status pc-xafsizlik      # holat
+sudo systemctl restart pc-xafsizlik     # qayta yoqish
+sudo journalctl -u pc-xafsizlik -f      # jonli log
+```
 Dashboard: **http://127.0.0.1:8000**
 
-> Kamera topilmasa dastur avtomatik **demo rejimiga** o'tadi va namunali rasmlar bilan
-> ishlaydi — interfeysni sinab ko'rish uchun.
+### Oddiy ishga tushirish (o'rnatmasdan)
+```bash
+./run.sh              # Linux / macOS
+run.bat               # Windows
+```
+> Kamera topilmasa dastur **demo rejimiga** o'tadi va namunali rasmlar bilan ishlaydi.
 
 ---
 

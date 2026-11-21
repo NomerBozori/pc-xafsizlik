@@ -27,11 +27,16 @@ DEFAULTS = {
     "auth_log_keywords": [
         "Failed password",
         "authentication failure",
-        "pam_unix(",
+        "Authentication failure",
         "login failure",
         "Invalid user",
         "FAILED LOGIN",
+        "FAILED su",
+        "incorrect password",
+        "Sorry, try again",
     ],
+    # Mahalliy (ekran qulfi / sudo / su) urinishlar uchun ixtiyoriy spool fayl
+    "extra_log_file": "/var/lib/pc-xafsizlik/attempts.log",
     # Xatti-harakat
     "snapshot_dir": "snapshots",
     "retention_days": 30,
@@ -48,6 +53,7 @@ ENV_MAP = {
     "PCX_SNAPSHOT_DIR": ("snapshot_dir", str),
     "PCX_DEMO_DIR": ("demo_dir", str),
     "PCX_LOG_FILES": ("log_files", lambda v: [p.strip() for p in v.split(os.pathsep) if p.strip()]),
+    "PCX_EXTRA_LOG": ("extra_log_file", str),
 }
 
 
@@ -68,6 +74,7 @@ class Config:
     retention_days: int = DEFAULTS["retention_days"]
     simulate: bool = DEFAULTS["simulate"]
     demo_dir: str = DEFAULTS["demo_dir"]
+    extra_log_file: str = DEFAULTS["extra_log_file"]
 
     def resolve(self, p: str) -> Path:
         path = Path(p)

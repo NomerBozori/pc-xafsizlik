@@ -20,15 +20,21 @@ from .config import Config
 # syslog: "Nov 21 03:14:07 host sshd[123]: Failed password for root from 10.0.0.5 ..."
 SYSLOG_RE = re.compile(r"^(?P<ts>[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+\S+\s+(?P<rest>.*)$")
 ISO_RE = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)\S*\s+(?P<rest>.*)$")
-USER_RE = re.compile(r"(?:for (?:invalid user )?|user[= ])(?P<user>[A-Za-z0-9_.\-\\$]+)", re.I)
+# "for ali", "for invalid user hacker", "user=ali", "for user nilufar"
+USER_RE = re.compile(
+    r"(?:for (?:invalid[ ]+)?user\s+|for\s+|user[= ]\s*)(?P<user>[A-Za-z0-9_.\-\\$]+)",
+    re.I,
+)
+# "FAILED su for root by guest" → birinchi ism (root) yoki "by" dan keyingisi
+SU_BY_RE = re.compile(r"\bby\s+(?P<by>[A-Za-z0-9_.\-]+)", re.I)
 SOURCE_RE = re.compile(r"from\s+(?P<src>[0-9a-fA-F:.]+)", re.I)
 
 
 def default_log_candidates() -> list[Path]:
     return [
+        Path("/var/lib/pc-xafsizlik/attempts.log"),
         Path("/var/log/auth.log"),
         Path("/var/log/secure"),
-        Path("/var/log/syslog"),
     ]
 
 
@@ -57,9 +63,17 @@ def parse_line(line: str) -> dict | None:
                 ts = None
     user = None
     source = None
+    # "FAILED su for root by guest" → parolni kiritgan odam = guest
+    bm = SU_BY_RE.search(rest)
     um = USER_RE.search(rest)
-    if um:
+    if bm and "failed su" in rest.lower():
+        user = bm.group("by")
+    elif um:
         user = um.group("user")
+    else:
+        lm = re.search(r"logname=(?P<n>[A-Za-z0-9_.\-]+)", rest)
+        if lm:
+            user = lm.group("n")
     sm = SOURCE_RE.search(rest)
     if sm:
         source = sm.group("src")
@@ -78,6 +92,7 @@ class AttemptWatcher:
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._offsets: dict[Path, int] = {}
+        self._grep_support: bool | None = None
         self.stats = {"seen": 0, "events": 0, "started_at": None, "sources": []}
 
     # ------------------------------------------------------------------ API
@@ -133,7 +148,13 @@ class AttemptWatcher:
     def _log_paths(self) -> list[Path]:
         if self.cfg.log_files:
             return [Path(p) for p in self.cfg.log_files]
-        return [p for p in default_log_candidates() if p.exists()]
+        paths = [p for p in default_log_candidates() if p.exists()]
+        extra = getattr(self.cfg, "extra_log_file", "")
+        if extra:
+            ep = Path(extra)
+            if ep.exists() and ep not in paths:
+                paths.append(ep)
+        return paths
 
     def _read_new(self, path: Path) -> list[str]:
         try:
@@ -174,15 +195,36 @@ class AttemptWatcher:
                 self._poll_file(p)
             self._stop.wait(1.0)
 
-    def _loop_journal(self) -> None:
-        """journalctl -f orqali (systemd tizimlarida)."""
+    def _supports_grep(self) -> bool:
+        """journalctl -g ni qo'llab-quvvatlaydimi (systemd >= 237)."""
+        if self._grep_support is not None:
+            return self._grep_support
         import subprocess
+        try:
+            out = subprocess.run(["journalctl", "--help"], capture_output=True,
+                                 text=True, timeout=5).stdout
+            self._grep_support = "--grep" in out or " -g " in out
+        except (OSError, subprocess.SubprocessError):
+            self._grep_support = False
+        return self._grep_support
+
+    def _loop_journal(self) -> None:
+        """`journalctl -f` orqali tizim jurnalini kuzatish (asosiy manba)."""
+        import subprocess
+        base = ["journalctl", "-f", "-n", "0", "-o", "short-iso"]
+        if self._supports_grep():
+            pattern = "|".join(
+                k.replace("(", r"\(").replace(")", r"\)").replace("|", r"\|")
+                for k in self.cfg.auth_log_keywords
+            )
+            base += ["-g", pattern]
+
         while not self._stop.is_set():
             try:
                 proc = subprocess.Popen(
-                    ["journalctl", "-f", "-n", "0", "-o", "short-iso",
-                     "-u", "sshd", "-u", "systemd-logind", "-u", "gdm", "-u", "lightdm"],
+                    base,
                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                    bufsize=1,
                 )
             except (FileNotFoundError, PermissionError):
                 return
@@ -200,11 +242,13 @@ class AttemptWatcher:
                                 raw=parsed["raw"],
                                 ts=parsed["ts"],
                             )
+            except (OSError, ValueError):
+                pass
             finally:
                 proc.terminate()
                 try:
                     proc.wait(timeout=3)
-                except Exception:
+                except subprocess.TimeoutExpired:
                     proc.kill()
             self._stop.wait(5.0)
 
@@ -212,7 +256,7 @@ class AttemptWatcher:
         self._stop.clear()
         self.stats["started_at"] = datetime.now().isoformat(timespec="seconds")
 
-        # Windows: Event Log (4625) orqali ishlaymiz
+        # --- Windows: Security Event Log (4625) -----------------------
         from .windows_log import IS_WINDOWS, poll_loop  # mahalliy import
         if IS_WINDOWS:
             t = threading.Thread(
@@ -227,23 +271,52 @@ class AttemptWatcher:
             self.stats["sources"] = ["Windows Security (4625)"]
             return {"watching": self.stats["sources"]}
 
-        paths = self._log_paths()
-        self.stats["sources"] = [str(p) for p in paths]
-        if paths:
-            # mavjud yozuvlarni "eski" deb hisoblab, oxiridan boshlaymiz
-            for p in paths:
+        # --- Linux: journal (asosiy) + spool fayl ---------------------
+        sources: list[str] = []
+        import shutil as _sh
+        has_journal = _sh.which("journalctl") is not None
+
+        file_paths: list[Path] = []
+        if not has_journal:
+            # journal yo'q tizimlarda to'g'ridan-to'g'ri log fayllar
+            file_paths = [p for p in (Path("/var/log/auth.log"), Path("/var/log/secure"),
+                                      Path("/var/log/syslog")) if p.exists()]
+            if self.cfg.log_files:
+                file_paths = [Path(p) for p in self.cfg.log_files]
+        elif self.cfg.log_files:
+            file_paths = [Path(p) for p in self.cfg.log_files]
+
+        # PAM/lock-screen urinishlari uchun spool fayl (har doim kuzatiladi)
+        extra = getattr(self.cfg, "extra_log_file", "")
+        if extra:
+            ep = Path(extra)
+            try:
+                ep.parent.mkdir(parents=True, exist_ok=True)
+                ep.touch(exist_ok=True)
+            except OSError:
+                pass  # root bo'lmasa yaratilmaydi — muhim emas
+            if ep.exists() and ep not in file_paths:
+                file_paths.append(ep)
+
+        if has_journal:
+            t = threading.Thread(target=self._loop_journal, daemon=True, name="log-journal")
+            t.start()
+            self._threads.append(t)
+            sources.append("journalctl")
+
+        if file_paths:
+            for p in file_paths:
                 try:
                     self._offsets[p] = p.stat().st_size
                 except OSError:
                     self._offsets[p] = 0
-            t = threading.Thread(target=self._loop_files, args=(paths,), daemon=True, name="log-files")
+            t = threading.Thread(target=self._loop_files, args=(file_paths,), daemon=True,
+                                 name="log-files")
             t.start()
             self._threads.append(t)
-        if not paths:
-            t = threading.Thread(target=self._loop_journal, daemon=True, name="log-journal")
-            t.start()
-            self._threads.append(t)
-            self.stats["sources"] = ["journalctl"]
+            sources.extend(str(p) for p in file_paths)
+
+        self.stats["sources"] = sources or ["hech qanday manba topilmadi"]
         return {"watching": self.stats["sources"]}
 
     def stop(self) -> None:

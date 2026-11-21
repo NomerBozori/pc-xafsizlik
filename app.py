@@ -20,7 +20,7 @@ from flask import (
 from xavfsizlik.camera import CameraError
 from xavfsizlik.config import load_config, write_default_config
 from xavfsizlik.monitor import Monitor
-from xavfsizlik.watcher import simulate_attempts
+from xavfsizlik.watcher import parse_line, simulate_attempts
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -89,6 +89,34 @@ def create_app(cfg) -> Flask:
         monitor.counters.update({"events": 0, "photos": 0})
         return jsonify({"ok": True, "removed_photos": removed})
 
+    @app.post("/api/report")
+    def api_report():
+        """Tashqi vosita (PAM hook, skript) xato urinish haqida xabar beradi.
+
+        JSON: {"user": "ali", "source": "login-ekran", "raw": "..."}
+        Yoki text/plain: bitta qator.
+        """
+        body = request.get_json(silent=True)
+        if isinstance(body, dict):
+            user = str(body.get("user") or "noma'lum")
+            source = str(body.get("source") or "lokal")
+            raw = str(body.get("raw") or "")
+        else:
+            line = (request.get_data(as_text=True) or "").strip()
+            parsed = parse_line(line) if line else None
+            user = (parsed or {}).get("user") or "noma'lum"
+            source = (parsed or {}).get("source") or "lokal"
+            raw = line
+        event = monitor.watcher.report_attempt(user=user, source=source, raw=raw)
+        return jsonify({"ok": True, "event_fired": event is not None})
+
+    # Mahalliy (loopback) manzilgina — tashqi tarmoqdan yopiq
+    @app.before_request
+    def local_only():
+        if request.remote_addr not in {"127.0.0.1", "::1", None}:
+            return jsonify({"error": "faqat lokal manzildan"}), 403
+        return None
+
     @app.post("/api/purge")
     def api_purge():
         return jsonify({"ok": True, "removed": monitor.store.purge_old()})
@@ -112,11 +140,12 @@ def create_app(cfg) -> Flask:
 
 def parse_args():
     p = argparse.ArgumentParser(description="PC Xavfsizlik dashboard")
-    p.add_argument("--host", default=os.environ.get("PCX_HOST", "0.0.0.0"))
+    p.add_argument("--host", default=os.environ.get("PCX_HOST", "127.0.0.1"))
     p.add_argument("--port", type=int, default=int(os.environ.get("PCX_PORT", "8000")))
     p.add_argument("--debug", action="store_true")
     p.add_argument("--arm", action="store_true", help="ishga tushganda darhol qo'riqlashni yoqish")
     p.add_argument("--init-config", action="store_true", help="config.json namunasi yaratish")
+    p.add_argument("--doctor", action="store_true", help="o'rnatishni tekshirish (diagnostika)")
     return p.parse_args()
 
 
@@ -128,6 +157,10 @@ def main() -> None:
         return
 
     cfg = load_config()
+    if args.doctor:
+        from xavfsizlik.doctor import run_doctor
+        raise SystemExit(run_doctor(cfg))
+
     if cfg.simulate is False:
         # kamera mavjudligini "yumshoq" tekshirish
         from xavfsizlik.camera import Camera

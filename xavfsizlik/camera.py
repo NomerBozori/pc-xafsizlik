@@ -35,6 +35,7 @@ class Camera:
         self._demo_cursor = 0
         self._burst_source: Path | None = None
         self._burst_index = 0
+        self.probe_info: dict = {}
 
     # ------------------------------------------------------------------ info
     @property
@@ -45,7 +46,41 @@ class Camera:
             return "opencv"
         if shutil.which("fswebcam"):
             return "fswebcam"
-        return "simulate"
+        return "yo'q"
+
+    def probe(self) -> dict:
+        """Haqiqiy qurilma javob beradimi? Natija `probe_info` da ham saqlanadi."""
+        if self.cfg.simulate:
+            self.probe_info = {"ok": True, "backend": "simulate", "note": "demo rejim"}
+            return self.probe_info
+        if cv2 is not None:
+            cap = cv2.VideoCapture(self.cfg.camera_index)
+            opened = cap.isOpened()
+            frame_ok = False
+            if opened:
+                for _ in range(10):
+                    ok, frame = cap.read()
+                    if ok and frame is not None:
+                        frame_ok = True
+                        break
+            cap.release()
+            if frame_ok:
+                self.probe_info = {"ok": True, "backend": "opencv"}
+            elif opened:
+                self.probe_info = {
+                    "ok": False, "backend": "opencv",
+                    "note": f"/dev/video{self.cfg.camera_index} ochildi, lekin kadr kelmadi "
+                            f"(kamera band yoki haydovchi muammosi)",
+                }
+            else:
+                self.probe_info = {
+                    "ok": False, "backend": "opencv",
+                    "note": f"/dev/video{self.cfg.camera_index} topilmadi yoki ochilmadi",
+                }
+            return self.probe_info
+        if shutil.which("fswebcam"):
+            return {"ok": True, "backend": "fswebcam"}
+        return {"ok": False, "backend": "yo'q", "note": "kamera kutubxonasi o'rnatilmagan"}
 
     def describe(self) -> dict:
         return {
@@ -53,6 +88,7 @@ class Camera:
             "camera_index": self.cfg.camera_index,
             "resolution": f"{self.cfg.capture_width}x{self.cfg.capture_height}",
             "simulate": self.cfg.simulate,
+            "probe": self.probe_info,
         }
 
     # ------------------------------------------------------------- open/close
@@ -122,6 +158,7 @@ class Camera:
         # demo rejimda bitta sahna tanlanadi — kadrlar ketma-ket "burst"ga o'xshasin
         self._burst_source = self._pick_demo_source() if self.cfg.simulate else None
         self._burst_index = 0
+        self.probe_info: dict = {}
 
         for i in range(max(1, self.cfg.burst_count)):
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
@@ -147,7 +184,11 @@ class Camera:
                 time.sleep(self.cfg.burst_delay)
 
         if not made:
-            raise CameraError("Rasm olishning iloji bo'lmadi (kamera band yoki yo'q).")
+            hint = ""
+            if cv2 is not None and not self.cfg.simulate:
+                hint = (f" · video{self.cfg.camera_index} ochilmadi yoki kadr bermadi."
+                        " Kamerani boshqa dastur (Zoom/Meet/Chrome) band qilgan bo'lishi mumkin.")
+            raise CameraError("Rasm olishning iloji bo'lmadi." + hint)
         return made
 
     def _pick_demo_source(self) -> Path | None:

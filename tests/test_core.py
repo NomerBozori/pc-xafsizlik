@@ -102,6 +102,54 @@ def test_status_shape():
             assert key in s
 
 
+
+
+def test_live_log_file_triggers_capture():
+    """Haqiqiy log faylga yozilgan xato urinishlar voqeani ishga tushirishi kerak."""
+    import time
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        log = tmp / "auth.log"
+        log.write_text("", encoding="utf-8")
+        cfg = make_cfg(tmp)
+        cfg.log_files = [str(log)]
+        cfg.simulate = True
+        cfg.burst_count = 2
+        cfg.burst_delay = 0.0
+        m = Monitor(cfg)
+        m.arm()
+        try:
+            time.sleep(0.3)  # watcher boshlanishini kutish
+            for i in range(cfg.threshold):
+                with log.open("a", encoding="utf-8") as fh:
+                    fh.write(f"Nov 21 03:14:0{i} laptop gdm-password]: "
+                             f"gkr-pam: authentication failure for user ali\n")
+                time.sleep(0.15)
+            deadline = time.time() + 8
+            while time.time() < deadline and not m.store.all():
+                time.sleep(0.2)
+            rows = m.store.all()
+            assert rows, "log yozuvi voqeani ishga tushirmadi"
+            assert rows[0]["photos"], "rasm olinmadi"
+            assert "ali" in rows[0]["users"]
+        finally:
+            m.disarm()
+
+
+def test_journal_line_formats():
+    """turli jurnal formatlarini tanish."""
+    cases = [
+        ("2026-11-21T08:00:00+0500 host gdm-password]: gkr-pam: authentication failure for user nilufar", "nilufar"),
+        ("Nov 21 08:00:00 host sudo: pam_unix(sudo:auth): authentication failure; logname=ali", "ali"),
+        ("2026-11-21T08:00:00+0500 host sshd[9]: Failed password for invalid user hacker from 1.2.3.4 port 5 ssh2", "hacker"),
+        ("2026-11-21T08:00:00+0500 host su: FAILED su for root by guest", None),
+    ]
+    for line, expected in cases:
+        parsed = parse_line(line)
+        assert parsed is not None, line
+        if expected:
+            assert parsed["user"] == expected, f"{line} → {parsed['user']}"
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):
