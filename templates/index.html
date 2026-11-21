@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PC Xavfsizlik — noutbuk qo'riqchisi</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">🛡</div>
+    <div>
+      <h1>PC Xavfsizlik</h1>
+      <p class="sub">Noutbuk qo'riqchisi — xato parol urinishlarida kamera jimgina rasmga oladi</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <div id="statePill" class="pill pill-off">
+      <span class="dot"></span><span id="stateText">O'chirilgan</span>
+    </div>
+    <button id="btnArm" class="btn btn-primary">Qo'riqlashni yoqish</button>
+    <button id="btnDisarm" class="btn btn-ghost">To'xtatish</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="stats">
+    <div class="card stat"><span class="stat-label">Xato urinishlar</span><span id="statSeen" class="stat-value">0</span></div>
+    <div class="card stat"><span class="stat-label">Voqealar</span><span id="statEvents" class="stat-value">0</span></div>
+    <div class="card stat"><span class="stat-label">Rasmlar</span><span id="statPhotos" class="stat-value">0</span></div>
+    <div class="card stat"><span class="stat-label">Kamera</span><span id="statCamera" class="stat-value small">—</span></div>
+  </section>
+
+  <section class="grid">
+    <div class="card panel">
+      <div class="panel-head">
+        <h2>Tezkor amallar</h2>
+        <span class="hint">Chegara: <b id="cfgThreshold">3</b> urinish / <b id="cfgWindow">120</b> s</span>
+      </div>
+      <div class="actions">
+        <button id="btnTest" class="btn btn-outline">📸 Sinov rasmi olish</button>
+        <button id="btnSimulate" class="btn btn-outline">🎭 Demo: 4 ta xato urinish</button>
+        <button id="btnCamTest" class="btn btn-outline">🔧 Kamerani tekshirish</button>
+        <button id="btnPurge" class="btn btn-outline">🧹 Eskilarini tozalash</button>
+        <button id="btnClear" class="btn btn-danger">🗑 Barchasini o'chirish</button>
+      </div>
+      <div id="toast" class="toast" hidden></div>
+      <div class="meta">
+        <div><span>Rasmlar papkasi</span><code id="snapDir">—</code></div>
+        <div><span>Log manbalari</span><code id="logSources">—</code></div>
+        <div><span>Oxirgi xato</span><code id="lastError">—</code></div>
+      </div>
+    </div>
+
+    <div class="card panel">
+      <div class="panel-head">
+        <h2>Oxirgi urinishlar</h2>
+        <button id="btnSimOne" class="btn btn-tiny">+ 1 urinish</button>
+      </div>
+      <ul id="attemptList" class="attempts"><li class="muted">Hozircha urinish yo'q</li></ul>
+    </div>
+  </section>
+
+  <section class="card panel">
+    <div class="panel-head">
+      <h2>Voqealar va rasmlar</h2>
+      <span id="eventCount" class="hint">0 voqea</span>
+    </div>
+    <div id="events" class="events"><p class="muted">Hozircha voqea yo'q. «Demo» tugmasini bosib ko'ring.</p></div>
+  </section>
+
+  <section class="card warn">
+    <h3>⚠ Muhim</h3>
+    <p>
+      Bu vosita faqat <b>o'zingizga tegishli</b> qurilmada, o'z xavfsizligingiz uchun ishlatiladi.
+      Boshqa odamni uning xabarisiz rasmga olish ko'p mamlakatlarda qonunga xilof.
+      Dastur hech narsani internetga yubormaydi — barcha rasmlar shu kompyuterda qoladi.
+    </p>
+  </section>
+</main>
+
+<div id="lightbox" class="lightbox" hidden>
+  <button class="lb-close" id="lbClose">✕</button>
+  <img id="lbImg" alt="rasm" />
+  <div id="lbCaption" class="lb-caption"></div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
